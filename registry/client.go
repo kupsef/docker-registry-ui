@@ -45,21 +45,27 @@ func NewClient(url string, verifyTLS bool, username, password string) *Client {
 		repos:     []string{},
 		tagCounts: map[string]int{},
 	}
+
+	return c
+}
+
+func (c *Client) Initialize() error {
 	resp, _, errs := c.request.Get(c.url+"/v2/").
-		Set("User-Agent", userAgent).End()
+		Set("User-Agent", userAgent).
+		End()
 	if len(errs) > 0 {
 		c.logger.Error(errs[0])
-		return nil
+		return fmt.Errorf("Failed to connect to registry: %w", errs[0])
 	}
 
 	authHeader := ""
 	if resp.StatusCode == 200 {
-		return c
+		return nil
 	} else if resp.StatusCode == 401 {
 		authHeader = resp.Header.Get("WWW-Authenticate")
 	} else {
 		c.logger.Error(resp.Status)
-		return nil
+		return fmt.Errorf("Invalid status code while initialising %s", resp.Status)
 	}
 
 	if strings.HasPrefix(authHeader, "Bearer") {
@@ -70,14 +76,14 @@ func NewClient(url string, verifyTLS bool, username, password string) *Client {
 		}
 		if c.authURL == "" {
 			c.logger.Warn("No token auth service discovered from ", c.url)
-			return nil
+			return fmt.Errorf("No token auth service discovered from: %s", c.url)
 		}
 	} else if strings.HasPrefix(strings.ToLower(authHeader), "basic") {
 		c.request = c.request.SetBasicAuth(c.username, c.password)
 		c.logger.Info("It was discovered the registry is configured with HTTP basic auth.")
 	}
 
-	return c
+	return nil
 }
 
 // getToken get existing or new auth token.

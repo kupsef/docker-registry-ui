@@ -1,14 +1,16 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
+	url "net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/CloudyKit/jet"
 	"github.com/labstack/echo/v4"
@@ -41,6 +43,8 @@ type configData struct {
 	PurgeTagsKeepDays     int      `yaml:"purge_tags_keep_days"`
 	PurgeTagsKeepCount    int      `yaml:"purge_tags_keep_count"`
 	PurgeTagsSchedule     string   `yaml:"purge_tags_schedule"`
+	InitAttempts          int      `yaml:"init_attempts"`
+	InitDelay             int      `yaml:"init_delay"`
 }
 
 type template struct {
@@ -126,9 +130,21 @@ func main() {
 
 	// Init registry API client.
 	a.client = registry.NewClient(a.config.RegistryURL, a.config.VerifyTLS, a.config.Username, a.config.Password)
-	if a.client == nil {
-		panic(fmt.Errorf("cannot initialize api client or unsupported auth method"))
-	}
+	func() {
+		var tries int = a.config.InitAttempts
+		err := a.client.Initialize()
+		for ; err != nil; err = a.client.Initialize() {
+			var e *url.Error
+			if errors.As(err, &e) {
+				tries--
+				if tries > 0 {
+					time.Sleep(time.Duration(a.config.InitDelay) * time.Second)
+					continue
+				}
+			}
+			panic(fmt.Errorf("Cannot initialize api client: %w", err))
+		}
+	}()
 
 	// Execute CLI task and exit.
 	if purgeTags {
